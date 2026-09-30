@@ -9,12 +9,12 @@ import {
   carregarLogo,
   carregarOriginal,
   dataBR,
-  desenharQuadro,
   novaProposta,
   totais,
   uid,
 } from './util'
 import { useRef } from 'react'
+import { desenharCapa } from './capaPreview'
 import { gerarPdf } from './pdf'
 import { Capacitor } from '@capacitor/core'
 import { Filesystem, Directory } from '@capacitor/filesystem'
@@ -144,46 +144,43 @@ function ParteForm({ p, onChange }: { p: Parte; onChange: (p: Parte) => void }) 
   )
 }
 
-function Enquadrar({
-  src,
-  zoom,
-  x,
-  y,
-  onChange,
-}: {
-  src: string
-  zoom: number
-  x: number
-  y: number
-  onChange: (v: { zoom: number; x: number; y: number }) => void
-}) {
+function CapaPreview({ p, onChange }: { p: Proposta; onChange: (v: { zoom: number; x: number; y: number }) => void }) {
   const ref = useRef<HTMLCanvasElement>(null)
-  const [img, setImg] = useState<HTMLImageElement | null>(null)
+  const [foto, setFoto] = useState<HTMLImageElement | null>(null)
+  const [logo, setLogo] = useState<HTMLImageElement | null>(null)
   const arraste = useRef<{ px: number; py: number } | null>(null)
+  const { capa } = p
+  const zoom = capa.imgZoom ?? 1
+  const x = capa.imgX ?? 0.5
+  const y = capa.imgY ?? 0.5
+  const editavel = capa.estilo === 'imagem' && !!foto
 
   useEffect(() => {
-    carregarImg(src).then(setImg)
-  }, [src])
+    if (capa.imagem) carregarImg(capa.imagem).then(setFoto)
+    else setFoto(null)
+  }, [capa.imagem])
+  useEffect(() => {
+    if (p.logo) carregarImg(p.logo).then(setLogo)
+    else setLogo(null)
+  }, [p.logo])
 
   useEffect(() => {
     const c = ref.current
-    if (!c || !img) return
-    desenharQuadro(c.getContext('2d')!, img, c.width, c.height, zoom, x, y)
-  }, [img, zoom, x, y])
+    if (c) desenharCapa(c.getContext('2d')!, c.width, p, foto, logo)
+  }, [p, foto, logo])
 
   const limita = (n: number) => Math.min(1, Math.max(0, n))
-
   const mover = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!arraste.current || !img) return
-    const c = e.currentTarget
-    const box = c.getBoundingClientRect()
-    const dx = e.clientX - arraste.current.px
-    const dy = e.clientY - arraste.current.py
+    if (!arraste.current || !foto) return
+    const box = e.currentTarget.getBoundingClientRect()
+    const mmPorPx = 210 / box.width
+    const dx = (e.clientX - arraste.current.px) * mmPorPx
+    const dy = (e.clientY - arraste.current.py) * mmPorPx
     arraste.current = { px: e.clientX, py: e.clientY }
-    const a = areaVisivel(img.width, img.height, zoom, x, y)
-    // arrastar a foto para a direita = mostrar mais da esquerda
-    const nx = img.width - a.vw > 1 ? x - (dx / box.width) * (a.vw / (img.width - a.vw)) : x
-    const ny = img.height - a.vh > 1 ? y - (dy / box.height) * (a.vh / (img.height - a.vh)) : y
+    const a = areaVisivel(foto.width, foto.height, zoom, x, y)
+    // arrastar a foto para a direita = mostrar mais da esquerda dela
+    const nx = foto.width - a.vw > 1 ? x - (dx / QUADRO_W) * (a.vw / (foto.width - a.vw)) : x
+    const ny = foto.height - a.vh > 1 ? y - (dy / QUADRO_H) * (a.vh / (foto.height - a.vh)) : y
     onChange({ zoom, x: limita(nx), y: limita(ny) })
   }
 
@@ -192,27 +189,34 @@ function Enquadrar({
       <canvas
         ref={ref}
         width={630}
-        height={Math.round((630 * QUADRO_H) / QUADRO_W)}
+        height={891}
+        className={editavel ? 'editavel' : ''}
         onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId)
+          if (!editavel) return
+          e.currentTarget.setPointerCapture?.(e.pointerId)
           arraste.current = { px: e.clientX, py: e.clientY }
         }}
         onPointerMove={mover}
         onPointerUp={() => (arraste.current = null)}
         onPointerCancel={() => (arraste.current = null)}
       />
-      <small>Arraste a foto para enquadrar. Esta é a área que aparece na capa.</small>
-      <label className="zoom">
-        <span>Zoom</span>
-        <input
-          type="range"
-          min="1"
-          max="4"
-          step="0.05"
-          value={zoom}
-          onChange={(e) => onChange({ zoom: Number(e.target.value), x, y })}
-        />
-      </label>
+      <small>
+        Prévia da capa no formato do PDF (A4).
+        {capa.estilo === 'imagem' && ' Arraste a foto para enquadrar.'}
+      </small>
+      {capa.estilo === 'imagem' && capa.imagem && (
+        <label className="zoom">
+          <span>Zoom</span>
+          <input
+            type="range"
+            min="1"
+            max="4"
+            step="0.05"
+            value={zoom}
+            onChange={(e) => onChange({ zoom: Number(e.target.value), x, y })}
+          />
+        </label>
+      )}
     </div>
   )
 }
@@ -291,6 +295,7 @@ function Editor({
       <main>
         <section className="card">
           <h2>Capa</h2>
+          <CapaPreview p={p} onChange={(v) => upCapa({ imgZoom: v.zoom, imgX: v.x, imgY: v.y })} />
           <div className="estilos">
             {ESTILOS.map((e) => (
               <button
@@ -330,15 +335,6 @@ function Editor({
                   if (f) upCapa({ imagem: await carregarOriginal(f), imgZoom: 1, imgX: 0.5, imgY: 0.5 })
                 }}
               />
-              {p.capa.imagem && (
-                <Enquadrar
-                  src={p.capa.imagem}
-                  zoom={p.capa.imgZoom ?? 1}
-                  x={p.capa.imgX ?? 0.5}
-                  y={p.capa.imgY ?? 0.5}
-                  onChange={(v) => upCapa({ imgZoom: v.zoom, imgX: v.x, imgY: v.y })}
-                />
-              )}
             </div>
           )}
           <label className="campo">

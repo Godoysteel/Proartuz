@@ -7,14 +7,14 @@ const H = 297
 const M = 16 // margem lateral
 const CW = W - M * 2
 
-const rgb = (hex: string): [number, number, number] => {
+export const rgb = (hex: string): [number, number, number] => {
   const h = hex.replace('#', '')
   const n = parseInt(h.length === 3 ? h.replace(/./g, '$&$&') : h, 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
 // Escolhe texto claro ou escuro conforme a cor de fundo.
-const contraste = (hex: string): [number, number, number] => {
+export const contraste = (hex: string): [number, number, number] => {
   const [r, g, b] = rgb(hex)
   return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? [30, 30, 30] : [255, 255, 255]
 }
