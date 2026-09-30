@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { entregar } from '../arquivo'
+import Visualizador from './Visualizador'
 
 const MAX_TRACO = 1100 // maior lado (px) usado na vetorização: equilíbrio entre detalhe e velocidade
 
@@ -198,12 +199,10 @@ export default function ArteTela({
                   Vetor
                 </button>
               </div>
-              <div className="xadrez">
-                <img src={aba === 'vetor' && urlSvg ? urlSvg : urlImagem} alt="Prévia" />
-              </div>
+              <Visualizador dim={dim} urlImagem={urlImagem} svg={svg} modo={aba} resetKey={fonte} />
               {dim && (
                 <small className="dica">
-                  {dim.w} × {dim.h} px{svg && aba === 'vetor' ? ' · vetor: sem limite de tamanho' : ''}
+                  {dim.w} × {dim.h} px{svg && aba === 'vetor' ? ' · vetor: sem limite de tamanho' : ''} · role para dar zoom, arraste para mover
                 </small>
               )}
             </>
