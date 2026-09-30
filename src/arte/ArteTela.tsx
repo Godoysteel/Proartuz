@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { entregar } from '../arquivo'
+import { mediana } from './filtro'
+import { paleta } from './paleta'
 import Visualizador from './Visualizador'
 
-const MAX_TRACO = 1100 // maior lado (px) usado na vetorização: equilíbrio entre detalhe e velocidade
+// Maior lado (px) usado na vetorização. Imagens menores são ampliadas antes: curvas mais suaves.
+const QUALIDADE = { rapida: 900, normal: 1600, alta: 2400 } as const
+type Qualidade = keyof typeof QUALIDADE
+
+const PRESETS = [
+  { nome: 'Logo simples', cores: 6, suavizar: 3, curvas: 20, manchas: 16 },
+  { nome: 'Logo colorido', cores: 12, suavizar: 2, curvas: 15, manchas: 12 },
+  { nome: 'Detalhado', cores: 24, suavizar: 1, curvas: 8, manchas: 6 },
+]
 
 const carregarImg = (src: string): Promise<HTMLImageElement> =>
   new Promise((ok, erro) => {
@@ -33,9 +43,14 @@ export default function ArteTela({
   const [ocupado, setOcupado] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
 
-  const [cores, setCores] = useState(8)
-  const [manchas, setManchas] = useState(8)
-  const [suavizar, setSuavizar] = useState(1)
+  const [cores, setCores] = useState(12)
+  const [manchas, setManchas] = useState(12)
+  const [suavizar, setSuavizar] = useState(2)
+  const [curvas, setCurvas] = useState(15) // 5..40: quanto maior, curvas mais lisas e simples
+  const [qualidade, setQualidade] = useState<Qualidade>('normal')
+
+  const [tolerancia, setTolerancia] = useState(30)
+  const [limparBorda, setLimparBorda] = useState(1)
 
   const [largura, setLargura] = useState(20) // cm
   const [dpi, setDpi] = useState(300)
@@ -84,28 +99,99 @@ export default function ArteTela({
       setAba('imagem')
     })
 
+  // Fundo liso (branco, cor chapada): apaga só o que está ligado às bordas e parecido com a cor do fundo,
+  // então brancos dentro da arte (letras, detalhes) são preservados.
+  const removerFundoLiso = () =>
+    rodar('Removendo fundo…', async () => {
+      await new Promise((r) => setTimeout(r, 30))
+      const img = await carregarImg(urlImagem!)
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      const c = document.createElement('canvas')
+      c.width = w
+      c.height = h
+      const ctx = c.getContext('2d', { willReadFrequently: true })!
+      ctx.drawImage(img, 0, 0)
+      const dados = ctx.getImageData(0, 0, w, h)
+      const d = dados.data
+      // cor do fundo = média de pequenos blocos nos 4 cantos
+      let r = 0, g = 0, b = 0, n = 0
+      for (const [cx, cy] of [[0, 0], [w - 5, 0], [0, h - 5], [w - 5, h - 5]]) {
+        for (let y = Math.max(0, cy); y < Math.min(h, cy + 5); y++)
+          for (let x = Math.max(0, cx); x < Math.min(w, cx + 5); x++) {
+            const i = (y * w + x) * 4
+            r += d[i]; g += d[i + 1]; b += d[i + 2]; n++
+          }
+      }
+      r /= n; g /= n; b /= n
+      const limite = tolerancia * tolerancia * 3
+      const parecido = (p: number) => {
+        const i = p * 4
+        if (d[i + 3] === 0) return true
+        const dr = d[i] - r, dg = d[i + 1] - g, db = d[i + 2] - b
+        return dr * dr + dg * dg + db * db <= limite
+      }
+      const visto = new Uint8Array(w * h)
+      const pilha = new Int32Array(w * h)
+      let topo = 0
+      const empurra = (p: number) => {
+        if (!visto[p] && parecido(p)) {
+          visto[p] = 1
+          pilha[topo++] = p
+        }
+      }
+      for (let x = 0; x < w; x++) { empurra(x); empurra((h - 1) * w + x) }
+      for (let y = 0; y < h; y++) { empurra(y * w); empurra(y * w + w - 1) }
+      while (topo) {
+        const p = pilha[--topo]
+        const x = p % w
+        if (x > 0) empurra(p - 1)
+        if (x < w - 1) empurra(p + 1)
+        if (p >= w) empurra(p - w)
+        if (p < w * (h - 1)) empurra(p + w)
+      }
+      // "Limpar borda": come alguns pixels do contorno, onde ficam franjas claras do JPEG
+      for (let k = 0; k < limparBorda; k++) {
+        const marcar: number[] = []
+        for (let p = 0; p < w * h; p++) {
+          if (visto[p]) continue
+          const x = p % w
+          if ((x > 0 && visto[p - 1]) || (x < w - 1 && visto[p + 1]) || (p >= w && visto[p - w]) || (p < w * (h - 1) && visto[p + w])) marcar.push(p)
+        }
+        for (const p of marcar) visto[p] = 1
+      }
+      for (let p = 0; p < w * h; p++) if (visto[p]) d[p * 4 + 3] = 0
+      ctx.putImageData(dados, 0, 0)
+      setAtual(await paraBlob(c))
+      setSvg(null)
+      setAba('imagem')
+    })
+
   const vetorizar = () =>
     rodar('Vetorizando…', async () => {
       await new Promise((r) => setTimeout(r, 30)) // deixa a mensagem aparecer antes de travar o processamento
       const img = await carregarImg(urlImagem!)
-      const s = Math.min(1, MAX_TRACO / Math.max(img.naturalWidth, img.naturalHeight))
+      const alvo = QUALIDADE[qualidade]
+      const s = alvo / Math.max(img.naturalWidth, img.naturalHeight)
       const c = document.createElement('canvas')
       c.width = Math.max(1, Math.round(img.naturalWidth * s))
       c.height = Math.max(1, Math.round(img.naturalHeight * s))
-      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+      const cx = c.getContext('2d', { willReadFrequently: true })!
+      cx.imageSmoothingQuality = 'high'
+      cx.drawImage(img, 0, 0, c.width, c.height)
       const { default: ImageTracer } = await import('imagetracerjs')
-      const dados = c.getContext('2d')!.getImageData(0, 0, c.width, c.height)
+      const dados = cx.getImageData(0, 0, c.width, c.height)
       // Borda suavizada (semitransparente) vira opaca ou transparente: evita centenas de camadas de "meio-tom".
       for (let i = 3; i < dados.data.length; i += 4) dados.data[i] = dados.data[i] < 128 ? 0 : 255
+      if (suavizar > 0) mediana(dados, Math.ceil(suavizar / 2)) // 1-2: uma passada; 3-4: duas; 5: três
       const out = ImageTracer.imagedataToSVG(dados, {
-        numberofcolors: cores,
-        colorsampling: 2,
-        colorquantcycles: 4,
-        pathomit: manchas,
-        ltres: 1,
-        qtres: 1,
-        blurradius: suavizar,
-        blurdelta: 20,
+        pal: paleta(dados, cores), // cores escolhidas por nós; a biblioteca só refina
+        colorsampling: 0,
+        colorquantcycles: 2,
+        pathomit: Math.round((manchas * alvo) / 1100),
+        ltres: curvas / 10,
+        qtres: curvas / 10,
+        blurradius: 0, // o ruído já foi tratado pelo filtro de mediana, que preserva as bordas
         strokewidth: 0,
         roundcoords: 2,
         viewbox: true,
@@ -214,44 +300,87 @@ export default function ArteTela({
           <>
             <section className="card">
               <h2>Fundo</h2>
+              <p className="dica sem-topo">
+                <b>Fundo liso</b> (branco ou uma cor só) é o mais preciso para logos: preserva os brancos dentro da arte.
+                <b> IA</b> serve para fotos e fundos complicados, mas pode apagar partes claras da arte.
+              </p>
+              <label className="campo">
+                <span>Tolerância da cor: {tolerancia}</span>
+                <input type="range" min="5" max="90" value={tolerancia} onChange={(e) => setTolerancia(Number(e.target.value))} />
+              </label>
+              <label className="campo">
+                <span>Limpar borda (px): {limparBorda}</span>
+                <input type="range" min="0" max="4" value={limparBorda} onChange={(e) => setLimparBorda(Number(e.target.value))} />
+              </label>
               <div className="linha2">
-                <button className="sec" disabled={!!ocupado} onClick={removerFundo}>
-                  Remover fundo
+                <button className="pri" disabled={!!ocupado} onClick={removerFundoLiso}>
+                  Remover fundo liso
                 </button>
-                <button
-                  className="sec"
-                  disabled={!!ocupado || atual === fonte}
-                  onClick={() => {
-                    setAtual(fonte)
-                    setSvg(null)
-                    setAba('imagem')
-                  }}
-                >
-                  Restaurar original
+                <button className="sec" disabled={!!ocupado} onClick={removerFundo}>
+                  Remover com IA
                 </button>
               </div>
-              <small className="dica">Na primeira vez baixa o modelo de IA (cerca de 40 MB) e precisa de internet.</small>
+              <button
+                className="sec cheio"
+                disabled={!!ocupado || atual === fonte}
+                onClick={() => {
+                  setAtual(fonte)
+                  setSvg(null)
+                  setAba('imagem')
+                }}
+              >
+                Restaurar original
+              </button>
+              <small className="dica">A IA baixa um modelo (cerca de 40 MB) na primeira vez e precisa de internet.</small>
             </section>
 
             <section className="card">
               <h2>Vetorizar</h2>
+              <div className="estilos">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p.nome}
+                    className="chip"
+                    onClick={() => {
+                      setCores(p.cores)
+                      setSuavizar(p.suavizar)
+                      setCurvas(p.curvas)
+                      setManchas(p.manchas)
+                    }}
+                  >
+                    {p.nome}
+                  </button>
+                ))}
+              </div>
               <label className="campo">
                 <span>Cores: {cores}</span>
                 <input type="range" min="2" max="32" value={cores} onChange={(e) => setCores(Number(e.target.value))} />
               </label>
               <label className="campo">
+                <span>Curvas mais lisas: {curvas}</span>
+                <input type="range" min="5" max="40" value={curvas} onChange={(e) => setCurvas(Number(e.target.value))} />
+              </label>
+              <label className="campo">
+                <span>Reduzir ruído (JPEG): {suavizar}</span>
+                <input type="range" min="0" max="5" value={suavizar} onChange={(e) => setSuavizar(Number(e.target.value))} />
+              </label>
+              <label className="campo">
                 <span>Ignorar manchas pequenas: {manchas}</span>
                 <input type="range" min="0" max="50" value={manchas} onChange={(e) => setManchas(Number(e.target.value))} />
               </label>
-              <label className="campo">
-                <span>Suavizar: {suavizar}</span>
-                <input type="range" min="0" max="5" value={suavizar} onChange={(e) => setSuavizar(Number(e.target.value))} />
-              </label>
+              <div className="abas">
+                {(['rapida', 'normal', 'alta'] as const).map((q) => (
+                  <button key={q} className={qualidade === q ? 'ativo' : ''} onClick={() => setQualidade(q)}>
+                    {q === 'rapida' ? 'Rápida' : q === 'normal' ? 'Normal' : 'Alta'}
+                  </button>
+                ))}
+              </div>
               <button className="pri cheio" disabled={!!ocupado} onClick={vetorizar}>
                 {svg ? 'Vetorizar de novo' : 'Vetorizar'}
               </button>
               <small className="dica">
-                Funciona melhor em logos e ilustrações com poucas cores. Em fotos o resultado fica artificial.
+                Funciona melhor em logos e ilustrações. Uma imagem pequena ou já comprimida (como as do WhatsApp) limita o
+                resultado: use "Alta" e "Reduzir ruído", ou peça o arquivo original ao cliente.
               </small>
             </section>
 

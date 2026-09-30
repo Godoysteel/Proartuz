@@ -91,3 +91,12 @@ button:disabled { opacity:.6; }
 .visor.cheia .visor-barra { padding:10px 8px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--bd); background:#fff; }
 .visor-barra button { min-width:38px; padding:8px 10px; border:1px solid var(--bd); background:#fff; border-radius:8px; font-weight:600; color:var(--azul); }
 .visor-barra span { min-width:54px; text-align:center; font-weight:700; font-size:13px; color:var(--txt); }
+.sem-topo { margin-top:0; margin-bottom:10px; }
+.card .estilos { margin-bottom:10px; }
+/* barra de zoom acima da imagem: a barra flutuante do app não a cobre */
+.visor { display:flex; flex-direction:column-reverse; }
+.visor.cheia { flex-direction:column-reverse; }
+.visor-barra { padding:0 4px 8px; }
+.visor.cheia .visor-barra { padding:calc(8px + env(safe-area-inset-top)) 8px 8px; border-top:0; border-bottom:1px solid var(--bd); }
+.visor-area { flex:none; }
+.visor.cheia .visor-area { flex:1; }
