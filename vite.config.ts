@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: '/Proartuz/',
+  base: process.env.APP_BASE ?? '/Proartuz/',
   plugins: [
     react(),
     VitePWA({

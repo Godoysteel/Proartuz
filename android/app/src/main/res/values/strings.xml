@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Proartuz</string>
+    <string name="title_activity_main">Proartuz</string>
+    <string name="package_name">com.artuz.proartuz</string>
+    <string name="custom_url_scheme">com.artuz.proartuz</string>
+</resources>

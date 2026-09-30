@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CoverStyle, Parte, Proposta } from './types'
 import { brl, carregarImagem, carregarLogo, dataBR, novaProposta, totais, uid } from './util'
 import { gerarPdf } from './pdf'
+import { Capacitor } from '@capacitor/core'
+import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
 
 const KEY = 'propostas.v1'
 
@@ -161,6 +164,17 @@ function Editor({
     setGerando(true)
     try {
       const { blob, nome } = await gerarPdf(p)
+      if (Capacitor.isNativePlatform()) {
+        // No app Android o WebView não baixa blobs: salva em arquivo e abre o menu de compartilhar.
+        const dados = await new Promise<string>((res) => {
+          const r = new FileReader()
+          r.onload = () => res((r.result as string).split(',')[1])
+          r.readAsDataURL(blob)
+        })
+        const salvo = await Filesystem.writeFile({ path: nome, data: dados, directory: Directory.Cache })
+        await Share.share({ title: nome, url: salvo.uri, dialogTitle: 'Enviar proposta' })
+        return
+      }
       const file = new File([blob], nome, { type: 'application/pdf' })
       if (compartilhar && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: nome })
