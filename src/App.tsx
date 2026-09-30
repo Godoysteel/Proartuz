@@ -36,7 +36,11 @@ const carregar = (): Proposta[] => {
 const vazia = (p: Proposta) =>
   !p.cliente.nome.trim() && !p.apresentacao.trim() && p.itens.every((i) => !i.descricao.trim())
 
-async function exportarPdf(p: Proposta, compartilhar: boolean) {
+type PdfPronto = { nome: string; url: string }
+
+// Gera o PDF e tenta baixar. No PC devolve o link do arquivo para o aviso na tela, que permite
+// abrir/salvar manualmente caso o navegador bloqueie ou esconda o download automático.
+async function exportarPdf(p: Proposta, compartilhar: boolean): Promise<PdfPronto | null> {
   const { blob, nome } = await gerarPdf(p)
   if (Capacitor.isNativePlatform()) {
     // No app Android o WebView não baixa blobs: salva em arquivo e abre o menu de compartilhar.
@@ -47,19 +51,22 @@ async function exportarPdf(p: Proposta, compartilhar: boolean) {
     })
     const salvo = await Filesystem.writeFile({ path: nome, data: dados, directory: Directory.Cache })
     await Share.share({ title: nome, url: salvo.uri, dialogTitle: 'Enviar proposta' })
-    return
+    return null
   }
+  const url = URL.createObjectURL(blob)
   const file = new File([blob], nome, { type: 'application/pdf' })
   if (compartilhar && navigator.canShare?.({ files: [file] })) {
     await navigator.share({ files: [file], title: nome })
   } else {
-    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = nome
+    a.style.display = 'none'
+    document.body.appendChild(a) // alguns navegadores só baixam se o link estiver na página
     a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10000)
+    a.remove()
   }
+  return { nome, url }
 }
 
 const Icone = ({ d }: { d: string }) => (
@@ -154,6 +161,7 @@ export default function App() {
   const [aberta, setAberta] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [gerando, setGerando] = useState(false)
+  const [pronto, setPronto] = useState<PdfPronto | null>(null)
   const ultima = useRef(lista)
   ultima.current = lista
 
@@ -215,7 +223,11 @@ export default function App() {
   const gerar = async (p: Proposta, compartilhar: boolean) => {
     setGerando(true)
     try {
-      await exportarPdf(p, compartilhar)
+      const r = await exportarPdf(p, compartilhar)
+      setPronto((ant) => {
+        if (ant) URL.revokeObjectURL(ant.url)
+        return r
+      })
     } catch (e) {
       if ((e as Error).name !== 'AbortError') alert('Erro ao gerar PDF: ' + (e as Error).message)
     } finally {
@@ -224,7 +236,26 @@ export default function App() {
   }
 
   const barra = (
-    <BarraFlutuante
+    <>
+      {pronto && (
+        <div className="aviso-pdf" role="status">
+          <div>
+            <strong>PDF gerado</strong>
+            <small>{pronto.nome}</small>
+            <small>Se o download não começou, use Abrir ou Salvar.</small>
+          </div>
+          <a href={pronto.url} target="_blank" rel="noopener">
+            Abrir
+          </a>
+          <a href={pronto.url} download={pronto.nome}>
+            Salvar
+          </a>
+          <button aria-label="Fechar aviso" onClick={() => setPronto(null)}>
+            ×
+          </button>
+        </div>
+      )}
+      <BarraFlutuante
       editando={!!atual}
       gerando={gerando}
       onHistorico={voltar}
@@ -232,6 +263,7 @@ export default function App() {
       onBaixar={() => atual && gerar(atual, false)}
       onEnviar={() => atual && gerar(atual, true)}
     />
+    </>
   )
 
   if (atual)
