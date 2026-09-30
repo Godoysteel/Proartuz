@@ -2,8 +2,8 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
-  base: process.env.APP_BASE ?? '/Proartuz/',
+export default defineConfig(({ command }) => ({
+  base: process.env.APP_BASE ?? (command === 'build' ? '/Proartuz/' : '/'),
   plugins: [
     react(),
     VitePWA({
@@ -23,4 +23,4 @@ export default defineConfig({
       },
     }),
   ],
-})
+}))

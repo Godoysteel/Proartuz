@@ -15,3 +15,7 @@ npm run build                   # gera dist/ (PWA)
 ## Instalar no celular
 O PWA precisa de HTTPS. Publique a pasta `dist/` (ex.: Vercel: GitHub Pages (workflow já incluído) ou Vercel),
 abra o link no Chrome/Safari do celular e use "Adicionar à tela inicial".
+
+## Fluxo
+Desenvolva e teste no PC com `npm run dev` (http://localhost:5173). Nada vai para o celular até publicar:
+`git tag vX.Y.Z && git push origin vX.Y.Z` publica o site (GitHub Pages) e gera o APK em Releases.
