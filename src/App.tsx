@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CoverStyle, Parte, Proposta } from './types'
 import {
   QUADRO_H,
@@ -13,7 +13,6 @@ import {
   totais,
   uid,
 } from './util'
-import { useRef } from 'react'
 import { desenharCapa } from './capaPreview'
 import { gerarPdf } from './pdf'
 import { Capacitor } from '@capacitor/core'
@@ -30,79 +29,268 @@ const carregar = (): Proposta[] => {
   }
 }
 
+const vazia = (p: Proposta) =>
+  !p.cliente.nome.trim() && !p.apresentacao.trim() && p.itens.every((i) => !i.descricao.trim())
+
+async function exportarPdf(p: Proposta, compartilhar: boolean) {
+  const { blob, nome } = await gerarPdf(p)
+  if (Capacitor.isNativePlatform()) {
+    // No app Android o WebView não baixa blobs: salva em arquivo e abre o menu de compartilhar.
+    const dados = await new Promise<string>((res) => {
+      const r = new FileReader()
+      r.onload = () => res((r.result as string).split(',')[1])
+      r.readAsDataURL(blob)
+    })
+    const salvo = await Filesystem.writeFile({ path: nome, data: dados, directory: Directory.Cache })
+    await Share.share({ title: nome, url: salvo.uri, dialogTitle: 'Enviar proposta' })
+    return
+  }
+  const file = new File([blob], nome, { type: 'application/pdf' })
+  if (compartilhar && navigator.canShare?.({ files: [file] })) {
+    await navigator.share({ files: [file], title: nome })
+  } else {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = nome
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+  }
+}
+
+const Icone = ({ d }: { d: string }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d={d} />
+  </svg>
+)
+
+const ICONES = {
+  historico: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2',
+  nova: 'M12 5v14M5 12h14',
+  baixar: 'M12 4v11m0 0l-4-4m4 4l4-4M5 20h14',
+  enviar: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13',
+}
+
+function useBarraVisivel() {
+  const [visivel, setVisivel] = useState(true)
+  useEffect(() => {
+    let ultimo = window.scrollY
+    const rolar = () => {
+      const y = window.scrollY
+      if (y < 60 || y < ultimo - 6) setVisivel(true)
+      else if (y > ultimo + 6) setVisivel(false)
+      ultimo = y
+    }
+    const campo = (e: Event) => (e.target as HTMLElement)?.matches?.('input:not([type=range]):not([type=color]), textarea')
+    const entrou = (e: Event) => campo(e) && setVisivel(false)
+    const saiu = (e: Event) => campo(e) && setVisivel(true)
+    window.addEventListener('scroll', rolar, { passive: true })
+    document.addEventListener('focusin', entrou)
+    document.addEventListener('focusout', saiu)
+    return () => {
+      window.removeEventListener('scroll', rolar)
+      document.removeEventListener('focusin', entrou)
+      document.removeEventListener('focusout', saiu)
+    }
+  }, [])
+  return [visivel, setVisivel] as const
+}
+
+function BarraFlutuante({
+  editando,
+  gerando,
+  onHistorico,
+  onNova,
+  onBaixar,
+  onEnviar,
+}: {
+  editando: boolean
+  gerando: boolean
+  onHistorico: () => void
+  onNova: () => void
+  onBaixar: () => void
+  onEnviar: () => void
+}) {
+  const [visivel, setVisivel] = useBarraVisivel()
+  return (
+    <>
+      <button className={'alca' + (visivel ? '' : ' mostrar')} aria-label="Mostrar barra de ações" onClick={() => setVisivel(true)}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 15l6-6 6 6" />
+        </svg>
+      </button>
+      <nav className={'flutuante' + (visivel ? '' : ' oculta')} aria-label="Ações">
+      <button className={editando ? '' : 'ativo'} onClick={onHistorico}>
+        <Icone d={ICONES.historico} />
+        Histórico
+      </button>
+      <button onClick={onNova}>
+        <Icone d={ICONES.nova} />
+        Nova
+      </button>
+      {editando && (
+        <>
+          <button disabled={gerando} onClick={onBaixar}>
+            <Icone d={ICONES.baixar} />
+            {gerando ? 'Gerando…' : 'Baixar PDF'}
+          </button>
+          <button className="dest" disabled={gerando} onClick={onEnviar}>
+            <Icone d={ICONES.enviar} />
+            Enviar
+          </button>
+        </>
+      )}
+      </nav>
+    </>
+  )
+}
+
 export default function App() {
   const [lista, setLista] = useState<Proposta[]>(carregar)
   const [aberta, setAberta] = useState<string | null>(null)
+  const [busca, setBusca] = useState('')
+  const [gerando, setGerando] = useState(false)
+  const ultima = useRef(lista)
+  ultima.current = lista
 
-  useEffect(() => {
+  const gravar = () => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(lista))
+      localStorage.setItem(KEY, JSON.stringify(ultima.current))
     } catch {
       alert('Sem espaço para salvar. Use imagens de capa menores.')
     }
+  }
+
+  // Salva pouco depois de cada alteração e também ao fechar/minimizar o app.
+  useEffect(() => {
+    const t = setTimeout(gravar, 400)
+    return () => clearTimeout(t)
   }, [lista])
+  useEffect(() => {
+    const sair = () => document.visibilityState === 'hidden' && gravar()
+    document.addEventListener('visibilitychange', sair)
+    window.addEventListener('pagehide', gravar)
+    return () => {
+      document.removeEventListener('visibilitychange', sair)
+      window.removeEventListener('pagehide', gravar)
+    }
+  }, [])
 
   const atual = lista.find((p) => p.id === aberta)
 
-  const salvar = (p: Proposta) => {
-    localStorage.setItem('emitente', JSON.stringify(p.emitente))
-    if (p.logo) localStorage.setItem('logo', p.logo)
-    setLista((l) => l.map((x) => (x.id === p.id ? { ...p, atualizadaEm: Date.now() } : x)))
-  }
+  const editar = (fn: (x: Proposta) => Proposta) =>
+    setLista((l) =>
+      l.map((x) => {
+        if (x.id !== aberta) return x
+        const n = { ...fn(x), atualizadaEm: Date.now() }
+        // emitente e logo viram padrão das próximas propostas
+        localStorage.setItem('emitente', JSON.stringify(n.emitente))
+        if (n.logo !== x.logo) localStorage.setItem('logo', n.logo)
+        return n
+      }),
+    )
 
-  if (atual) return <Editor key={atual.id} proposta={atual} onChange={salvar} onVoltar={() => setAberta(null)} />
+  // Proposta aberta sem nenhum dado preenchido não vai para o histórico.
+  const voltar = () => {
+    if (atual && vazia(atual)) setLista((l) => l.filter((x) => x.id !== atual.id))
+    setAberta(null)
+    setBusca('')
+  }
 
   const criar = () => {
+    if (atual && vazia(atual)) return
     const p = novaProposta()
-    setLista((l) => [p, ...l])
+    setLista((l) => [p, ...l.filter((x) => !(x.id === aberta && vazia(x)))])
     setAberta(p.id)
+    window.scrollTo(0, 0)
   }
+
+  const gerar = async (p: Proposta, compartilhar: boolean) => {
+    setGerando(true)
+    try {
+      await exportarPdf(p, compartilhar)
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') alert('Erro ao gerar PDF: ' + (e as Error).message)
+    } finally {
+      setGerando(false)
+    }
+  }
+
+  const barra = (
+    <BarraFlutuante
+      editando={!!atual}
+      gerando={gerando}
+      onHistorico={voltar}
+      onNova={criar}
+      onBaixar={() => atual && gerar(atual, false)}
+      onEnviar={() => atual && gerar(atual, true)}
+    />
+  )
+
+  if (atual)
+    return (
+      <>
+        <Editor p={atual} setP={editar} onVoltar={voltar} />
+        {barra}
+      </>
+    )
+
+  const termo = busca.trim().toLowerCase()
+  const filtradas = lista
+    .filter((p) => !termo || [p.cliente.nome, p.capa.titulo, ...p.itens.map((i) => i.descricao)].join(' ').toLowerCase().includes(termo))
+    .sort((a, b) => b.atualizadaEm - a.atualizadaEm)
 
   return (
     <div className="app">
       <header className="topo">
-        <h1>Proartuz</h1>
+        <h1>Proartuz · Histórico</h1>
       </header>
       <main>
-        {lista.length === 0 && <p className="vazio">Nenhuma proposta ainda. Toque em “Nova proposta”.</p>}
-        {lista
-          .slice()
-          .sort((a, b) => b.atualizadaEm - a.atualizadaEm)
-          .map((p) => (
-            <div key={p.id} className="card lista-item" onClick={() => setAberta(p.id)}>
-              <div>
-                <strong>{p.cliente.nome || 'Sem cliente'}</strong>
-                <small>
-                  {dataBR(p.data)} · {brl(totais(p).total)}
-                </small>
-              </div>
-              <div className="acoes">
-                <button
-                  className="link"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const c = { ...structuredClone(p), id: uid(), atualizadaEm: Date.now() }
-                    setLista((l) => [c, ...l])
-                  }}
-                >
-                  Duplicar
-                </button>
-                <button
-                  className="link perigo"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (confirm('Excluir esta proposta?')) setLista((l) => l.filter((x) => x.id !== p.id))
-                  }}
-                >
-                  Excluir
-                </button>
-              </div>
+        {lista.length > 0 && (
+          <input
+            className="busca"
+            type="search"
+            placeholder="Buscar por cliente ou item"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        )}
+        {lista.length === 0 && <p className="vazio">Nenhuma proposta ainda. Toque em “Nova” para criar a primeira.</p>}
+        {lista.length > 0 && filtradas.length === 0 && <p className="vazio">Nada encontrado.</p>}
+        {filtradas.map((p) => (
+          <div key={p.id} className="card lista-item" onClick={() => setAberta(p.id)}>
+            <div className="lista-info">
+              <strong>{p.cliente.nome || 'Sem cliente'}</strong>
+              <small>{p.itens.find((i) => i.descricao.trim())?.descricao || 'Sem itens'}</small>
+              <small>
+                {dataBR(p.data)} · <b>{brl(totais(p).total)}</b> · editada{' '}
+                {new Date(p.atualizadaEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </small>
             </div>
-          ))}
+            <div className="acoes" onClick={(e) => e.stopPropagation()}>
+              <button className="link" onClick={() => setAberta(p.id)}>
+                Editar
+              </button>
+              <button className="link" disabled={gerando} onClick={() => gerar(p, false)}>
+                PDF
+              </button>
+              <button
+                className="link"
+                onClick={() => setLista((l) => [{ ...structuredClone(p), id: uid(), atualizadaEm: Date.now() }, ...l])}
+              >
+                Duplicar
+              </button>
+              <button
+                className="link perigo"
+                onClick={() => confirm('Excluir esta proposta?') && setLista((l) => l.filter((x) => x.id !== p.id))}
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        ))}
       </main>
-      <button className="fab" onClick={criar}>
-        + Nova proposta
-      </button>
+      {barra}
     </div>
   )
 }
@@ -229,65 +417,23 @@ const ESTILOS: { id: CoverStyle; nome: string }[] = [
 const CORES = ['#0f3d5e', '#1b1b1b', '#b3261e', '#1f7a4d', '#c77d0a', '#5b3fa0']
 
 function Editor({
-  proposta,
-  onChange,
+  p,
+  setP,
   onVoltar,
 }: {
-  proposta: Proposta
-  onChange: (p: Proposta) => void
+  p: Proposta
+  setP: (fn: (x: Proposta) => Proposta) => void
   onVoltar: () => void
 }) {
-  const [p, setP] = useState(proposta)
-  const [gerando, setGerando] = useState(false)
-
-  useEffect(() => {
-    const t = setTimeout(() => onChange(p), 400)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p])
-
   const { subtotal, total } = useMemo(() => totais(p), [p])
   const up = (patch: Partial<Proposta>) => setP((x) => ({ ...x, ...patch }))
   const upCapa = (patch: Partial<Proposta['capa']>) => setP((x) => ({ ...x, capa: { ...x.capa, ...patch } }))
-
-  const gerar = async (compartilhar: boolean) => {
-    setGerando(true)
-    try {
-      const { blob, nome } = await gerarPdf(p)
-      if (Capacitor.isNativePlatform()) {
-        // No app Android o WebView não baixa blobs: salva em arquivo e abre o menu de compartilhar.
-        const dados = await new Promise<string>((res) => {
-          const r = new FileReader()
-          r.onload = () => res((r.result as string).split(',')[1])
-          r.readAsDataURL(blob)
-        })
-        const salvo = await Filesystem.writeFile({ path: nome, data: dados, directory: Directory.Cache })
-        await Share.share({ title: nome, url: salvo.uri, dialogTitle: 'Enviar proposta' })
-        return
-      }
-      const file = new File([blob], nome, { type: 'application/pdf' })
-      if (compartilhar && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: nome })
-      } else {
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = nome
-        a.click()
-        setTimeout(() => URL.revokeObjectURL(url), 10000)
-      }
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') alert('Erro ao gerar PDF: ' + (e as Error).message)
-    } finally {
-      setGerando(false)
-    }
-  }
 
   return (
     <div className="app">
       <header className="topo">
         <button className="link claro" onClick={onVoltar}>
-          ‹ Voltar
+          ‹ Histórico
         </button>
         <h1>{p.cliente.nome || 'Nova proposta'}</h1>
       </header>
@@ -467,14 +613,6 @@ function Editor({
         </section>
       </main>
 
-      <div className="barra">
-        <button className="sec" disabled={gerando} onClick={() => gerar(false)}>
-          Baixar PDF
-        </button>
-        <button className="pri" disabled={gerando} onClick={() => gerar(true)}>
-          {gerando ? 'Gerando…' : 'Compartilhar PDF'}
-        </button>
-      </div>
     </div>
   )
 }
