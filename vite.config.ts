@@ -8,6 +8,22 @@ export default defineConfig(({ command }) => ({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        // Arquivos pesados da área Arte (remoção de fundo) não entram no pré-carregamento:
+        // são baixados na primeira vez que a ferramenta é usada e ficam em cache depois.
+        globIgnores: ['**/*.wasm', '**/ort*.js'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /\.wasm$|\/ort[^/]*\.js$|staticimgly\.com/.test(url.href),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'arte-modelos',
+              expiration: { maxEntries: 40 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
       manifest: {
         name: 'Proartuz',
         short_name: 'Proartuz',

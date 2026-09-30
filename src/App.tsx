@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import type { CoverStyle, Parte, Proposta } from './types'
 import {
   QUADRO_H,
@@ -19,9 +19,10 @@ import {
 } from './util'
 import { desenharCapa } from './capaPreview'
 import { gerarPdf } from './pdf'
-import { Capacitor } from '@capacitor/core'
-import { Filesystem, Directory } from '@capacitor/filesystem'
-import { Share } from '@capacitor/share'
+import { entregar } from './arquivo'
+
+// A área de arte carrega só quando aberta (traz bibliotecas pesadas de vetorização e remoção de fundo).
+const ArteTela = lazy(() => import('./arte/ArteTela'))
 
 const KEY = 'propostas.v1'
 
@@ -38,28 +39,7 @@ const vazia = (p: Proposta) =>
 
 async function exportarPdf(p: Proposta, compartilhar: boolean) {
   const { blob, nome } = await gerarPdf(p)
-  if (Capacitor.isNativePlatform()) {
-    // No app Android o WebView não baixa blobs: salva em arquivo e abre o menu de compartilhar.
-    const dados = await new Promise<string>((res) => {
-      const r = new FileReader()
-      r.onload = () => res((r.result as string).split(',')[1])
-      r.readAsDataURL(blob)
-    })
-    const salvo = await Filesystem.writeFile({ path: nome, data: dados, directory: Directory.Cache })
-    await Share.share({ title: nome, url: salvo.uri, dialogTitle: 'Enviar proposta' })
-    return
-  }
-  const file = new File([blob], nome, { type: 'application/pdf' })
-  if (compartilhar && navigator.canShare?.({ files: [file] })) {
-    await navigator.share({ files: [file], title: nome })
-  } else {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = nome
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10000)
-  }
+  await entregar(blob, nome, compartilhar)
 }
 
 const Icone = ({ d }: { d: string }) => (
@@ -72,6 +52,7 @@ const ICONES = {
   historico: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2',
   nova: 'M12 5v14M5 12h14',
   baixar: 'M12 4v11m0 0l-4-4m4 4l4-4M5 20h14',
+  arte: 'M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z',
   enviar: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13',
 }
 
@@ -101,6 +82,8 @@ function useBarraVisivel() {
 }
 
 function BarraFlutuante({
+  modo,
+  onArte,
   editando,
   gerando,
   onHistorico,
@@ -108,6 +91,8 @@ function BarraFlutuante({
   onBaixar,
   onEnviar,
 }: {
+  modo: 'propostas' | 'arte'
+  onArte: () => void
   editando: boolean
   gerando: boolean
   onHistorico: () => void
@@ -124,13 +109,17 @@ function BarraFlutuante({
         </svg>
       </button>
       <nav className={'flutuante' + (visivel ? '' : ' oculta')} aria-label="Ações">
-      <button className={editando ? '' : 'ativo'} onClick={onHistorico}>
+      <button className={modo === 'propostas' && !editando ? 'ativo' : ''} onClick={onHistorico}>
         <Icone d={ICONES.historico} />
         Histórico
       </button>
       <button onClick={onNova}>
         <Icone d={ICONES.nova} />
         Nova
+      </button>
+      <button className={modo === 'arte' ? 'ativo' : ''} onClick={onArte}>
+        <Icone d={ICONES.arte} />
+        Arte
       </button>
       {editando && (
         <>
@@ -153,6 +142,7 @@ export default function App() {
   const [lista, setLista] = useState<Proposta[]>(carregar)
   const [aberta, setAberta] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
+  const [modo, setModo] = useState<'propostas' | 'arte'>('propostas')
   const [gerando, setGerando] = useState(false)
   const ultima = useRef(lista)
   ultima.current = lista
@@ -202,10 +192,15 @@ export default function App() {
     }
     setAberta(null)
     setBusca('')
+    setModo('propostas')
   }
 
   const criar = () => {
-    if (atual && vazia(atual)) return
+    if (atual && vazia(atual)) {
+      setModo('propostas')
+      return
+    }
+    setModo('propostas')
     const p = novaProposta(reservarNumero(lista))
     setLista((l) => [p, ...l])
     setAberta(p.id)
@@ -225,7 +220,9 @@ export default function App() {
 
   const barra = (
     <BarraFlutuante
-      editando={!!atual}
+      modo={modo}
+      onArte={() => setModo('arte')}
+      editando={modo === 'propostas' && !!atual}
       gerando={gerando}
       onHistorico={voltar}
       onNova={criar}
@@ -233,6 +230,22 @@ export default function App() {
       onEnviar={() => atual && gerar(atual, true)}
     />
   )
+
+  if (modo === 'arte')
+    return (
+      <>
+        <Suspense fallback={<p className="vazio">Carregando…</p>}>
+          <ArteTela
+            temProposta={!!atual}
+            onUsarLogo={(logo) => {
+              localStorage.setItem('logo', logo)
+              if (atual) editar((x) => ({ ...x, logo }))
+            }}
+          />
+        </Suspense>
+        {barra}
+      </>
+    )
 
   if (atual)
     return (
