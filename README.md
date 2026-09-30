@@ -19,6 +19,3 @@ abra o link no Chrome/Safari do celular e use "Adicionar à tela inicial".
 ## Fluxo
 Desenvolva e teste no PC com `npm run dev` (http://localhost:5173). Nada vai para o celular até publicar:
 `git tag vX.Y.Z && git push origin vX.Y.Z` publica o site (GitHub Pages) e gera o APK em Releases.
-
-## Área Arte
-Ferramenta dentro do app (botão "Arte" na barra): remove fundo (IA no navegador, baixa ~40 MB na 1ª vez), vetoriza (imagetracerjs) e exporta SVG, PDF vetorial e PNG no tamanho em cm. Carrega sob demanda (lazy) para não pesar a área de propostas.
