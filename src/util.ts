@@ -91,3 +91,64 @@ export const carregarLogo = (file: File): Promise<string> =>
     img.onerror = reject
     img.src = url
   })
+
+// Proporção do quadro da foto na capa (largura x altura em mm no PDF).
+export const QUADRO_W = 210
+export const QUADRO_H = 140
+
+// Mantém a foto inteira (sem recortar), só reduzida para caber no armazenamento.
+export const carregarOriginal = (file: File, max = 1800): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const s = Math.min(1, max / Math.max(img.width, img.height))
+      const c = document.createElement('canvas')
+      c.width = Math.round(img.width * s)
+      c.height = Math.round(img.height * s)
+      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+      URL.revokeObjectURL(url)
+      resolve(c.toDataURL('image/jpeg', 0.85))
+    }
+    img.onerror = reject
+    img.src = url
+  })
+
+export const carregarImg = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+
+// Retângulo de origem (em px da foto) que aparece no quadro, dado zoom e posição.
+export const areaVisivel = (iw: number, ih: number, zoom: number, x: number, y: number) => {
+  const aspecto = QUADRO_W / QUADRO_H
+  const base = Math.min(iw / aspecto, ih) // maior área na proporção do quadro que cabe na foto
+  const vh = base / zoom
+  const vw = vh * aspecto
+  return { vw, vh, sx: (iw - vw) * x, sy: (ih - vh) * y }
+}
+
+export const desenharQuadro = (
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  w: number,
+  h: number,
+  zoom = 1,
+  x = 0.5,
+  y = 0.5,
+) => {
+  const a = areaVisivel(img.width, img.height, zoom, x, y)
+  ctx.drawImage(img, a.sx, a.sy, a.vw, a.vh, 0, 0, w, h)
+}
+
+export const recortarQuadro = async (src: string, zoom = 1, x = 0.5, y = 0.5) => {
+  const img = await carregarImg(src)
+  const c = document.createElement('canvas')
+  c.width = 1575
+  c.height = 1050
+  desenharQuadro(c.getContext('2d')!, img, c.width, c.height, zoom, x, y)
+  return c.toDataURL('image/jpeg', 0.88)
+}

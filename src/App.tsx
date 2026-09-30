@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CoverStyle, Parte, Proposta } from './types'
-import { brl, carregarImagem, carregarLogo, dataBR, novaProposta, totais, uid } from './util'
+import {
+  QUADRO_H,
+  QUADRO_W,
+  areaVisivel,
+  brl,
+  carregarImg,
+  carregarLogo,
+  carregarOriginal,
+  dataBR,
+  desenharQuadro,
+  novaProposta,
+  totais,
+  uid,
+} from './util'
+import { useRef } from 'react'
 import { gerarPdf } from './pdf'
 import { Capacitor } from '@capacitor/core'
 import { Filesystem, Directory } from '@capacitor/filesystem'
@@ -130,6 +144,79 @@ function ParteForm({ p, onChange }: { p: Parte; onChange: (p: Parte) => void }) 
   )
 }
 
+function Enquadrar({
+  src,
+  zoom,
+  x,
+  y,
+  onChange,
+}: {
+  src: string
+  zoom: number
+  x: number
+  y: number
+  onChange: (v: { zoom: number; x: number; y: number }) => void
+}) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const [img, setImg] = useState<HTMLImageElement | null>(null)
+  const arraste = useRef<{ px: number; py: number } | null>(null)
+
+  useEffect(() => {
+    carregarImg(src).then(setImg)
+  }, [src])
+
+  useEffect(() => {
+    const c = ref.current
+    if (!c || !img) return
+    desenharQuadro(c.getContext('2d')!, img, c.width, c.height, zoom, x, y)
+  }, [img, zoom, x, y])
+
+  const limita = (n: number) => Math.min(1, Math.max(0, n))
+
+  const mover = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!arraste.current || !img) return
+    const c = e.currentTarget
+    const box = c.getBoundingClientRect()
+    const dx = e.clientX - arraste.current.px
+    const dy = e.clientY - arraste.current.py
+    arraste.current = { px: e.clientX, py: e.clientY }
+    const a = areaVisivel(img.width, img.height, zoom, x, y)
+    // arrastar a foto para a direita = mostrar mais da esquerda
+    const nx = img.width - a.vw > 1 ? x - (dx / box.width) * (a.vw / (img.width - a.vw)) : x
+    const ny = img.height - a.vh > 1 ? y - (dy / box.height) * (a.vh / (img.height - a.vh)) : y
+    onChange({ zoom, x: limita(nx), y: limita(ny) })
+  }
+
+  return (
+    <div className="enquadrar">
+      <canvas
+        ref={ref}
+        width={630}
+        height={Math.round((630 * QUADRO_H) / QUADRO_W)}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId)
+          arraste.current = { px: e.clientX, py: e.clientY }
+        }}
+        onPointerMove={mover}
+        onPointerUp={() => (arraste.current = null)}
+        onPointerCancel={() => (arraste.current = null)}
+      />
+      <small>Arraste a foto para enquadrar. Esta é a área que aparece na capa.</small>
+      <label className="zoom">
+        <span>Zoom</span>
+        <input
+          type="range"
+          min="1"
+          max="4"
+          step="0.05"
+          value={zoom}
+          onChange={(e) => onChange({ zoom: Number(e.target.value), x, y })}
+        />
+      </label>
+    </div>
+  )
+}
+
 const ESTILOS: { id: CoverStyle; nome: string }[] = [
   { id: 'solida', nome: 'Cor sólida' },
   { id: 'faixa', nome: 'Faixa lateral' },
@@ -233,18 +320,26 @@ function Editor({
             </div>
           </div>
           {p.capa.estilo === 'imagem' && (
-            <label className="campo">
+            <div className="campo">
               <span>Foto da capa</span>
               <input
                 type="file"
                 accept="image/*"
                 onChange={async (e) => {
                   const f = e.target.files?.[0]
-                  if (f) upCapa({ imagem: await carregarImagem(f, 1240, 1754) })
+                  if (f) upCapa({ imagem: await carregarOriginal(f), imgZoom: 1, imgX: 0.5, imgY: 0.5 })
                 }}
               />
-              {p.capa.imagem && <img className="prev-capa" src={p.capa.imagem} alt="Capa" />}
-            </label>
+              {p.capa.imagem && (
+                <Enquadrar
+                  src={p.capa.imagem}
+                  zoom={p.capa.imgZoom ?? 1}
+                  x={p.capa.imgX ?? 0.5}
+                  y={p.capa.imgY ?? 0.5}
+                  onChange={(v) => upCapa({ imgZoom: v.zoom, imgX: v.x, imgY: v.y })}
+                />
+              )}
+            </div>
           )}
           <label className="campo">
             <span>Logo (aparece na capa e no cabeçalho)</span>

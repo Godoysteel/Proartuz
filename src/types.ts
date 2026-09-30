@@ -17,7 +17,10 @@ export type Capa = {
   cor: string
   titulo: string
   subtitulo: string
-  imagem: string // dataURL, usado no estilo "imagem"
+  imagem: string // dataURL (original reduzida), usado no estilo "imagem"
+  imgZoom?: number // 1 = preenche o quadro; até 4
+  imgX?: number // 0..1 posição horizontal do enquadramento
+  imgY?: number // 0..1 posição vertical do enquadramento
 }
 
 export type Proposta = {

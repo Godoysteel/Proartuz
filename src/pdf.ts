@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf'
 import type { Proposta } from './types'
-import { brl, dataBR, totais } from './util'
+import { QUADRO_H, brl, dataBR, recortarQuadro, totais } from './util'
 
 const W = 210
 const H = 297
@@ -44,13 +44,13 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
   // ---------- CAPA ----------
   const { capa } = p
   if (capa.estilo === 'imagem' && capa.imagem) {
-    doc.addImage(capa.imagem, 'JPEG', 0, 0, W, H)
-    doc.setGState(new (doc as any).GState({ opacity: 0.55 }))
-    doc.setFillColor(0, 0, 0)
-    doc.rect(0, H * 0.55, W, H * 0.45, 'F')
-    doc.setGState(new (doc as any).GState({ opacity: 1 }))
-    doc.setTextColor(255, 255, 255)
-    capaTexto(H - 90, 'left', [255, 255, 255])
+    // Foto enquadrada só no topo; título e dados numa área de cor abaixo.
+    const recorte = await recortarQuadro(capa.imagem, capa.imgZoom ?? 1, capa.imgX ?? 0.5, capa.imgY ?? 0.5)
+    doc.setFillColor(...cor)
+    doc.rect(0, 0, W, H, 'F')
+    doc.addImage(recorte, 'JPEG', 0, 0, W, QUADRO_H)
+    desenharLogo(M + 6, QUADRO_H + 8, 60, 20)
+    capaTexto(QUADRO_H + (logo ? 46 : 32), 'left', contraste(capa.cor))
   } else if (capa.estilo === 'faixa') {
     doc.setFillColor(...cor)
     doc.rect(0, 0, 38, H, 'F')
