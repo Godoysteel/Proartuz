@@ -201,7 +201,7 @@ function CapaPreview({ p, onChange }: { p: Proposta; onChange: (v: { zoom: numbe
         onPointerCancel={() => (arraste.current = null)}
       />
       <small>
-        Prévia da capa no formato do PDF (A4).
+        Prévia da folha (A4): a foto fica no fundo da faixa do título.
         {capa.estilo === 'imagem' && ' Arraste a foto para enquadrar.'}
       </small>
       {capa.estilo === 'imagem' && capa.imagem && (
@@ -222,8 +222,7 @@ function CapaPreview({ p, onChange }: { p: Proposta; onChange: (v: { zoom: numbe
 }
 
 const ESTILOS: { id: CoverStyle; nome: string }[] = [
-  { id: 'solida', nome: 'Cor sólida' },
-  { id: 'faixa', nome: 'Faixa lateral' },
+  { id: 'solida', nome: 'Cor de fundo' },
   { id: 'imagem', nome: 'Foto de fundo' },
 ]
 
@@ -294,7 +293,7 @@ function Editor({
       </header>
       <main>
         <section className="card">
-          <h2>Capa</h2>
+          <h2>Título e capa</h2>
           <CapaPreview p={p} onChange={(v) => upCapa({ imgZoom: v.zoom, imgX: v.x, imgY: v.y })} />
           <div className="estilos">
             {ESTILOS.map((e) => (

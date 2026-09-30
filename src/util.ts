@@ -92,9 +92,9 @@ export const carregarLogo = (file: File): Promise<string> =>
     img.src = url
   })
 
-// Proporção do quadro da foto na capa (largura x altura em mm no PDF).
+// Faixa do título no topo da página (mm no PDF): a foto fica de fundo dela.
 export const QUADRO_W = 210
-export const QUADRO_H = 140
+export const QUADRO_H = 76
 
 // Mantém a foto inteira (sem recortar), só reduzida para caber no armazenamento.
 export const carregarOriginal = (file: File, max = 1800): Promise<string> =>
@@ -148,7 +148,7 @@ export const recortarQuadro = async (src: string, zoom = 1, x = 0.5, y = 0.5) =>
   const img = await carregarImg(src)
   const c = document.createElement('canvas')
   c.width = 1575
-  c.height = 1050
+  c.height = Math.round((1575 * QUADRO_H) / QUADRO_W)
   desenharQuadro(c.getContext('2d')!, img, c.width, c.height, zoom, x, y)
   return c.toDataURL('image/jpeg', 0.88)
 }

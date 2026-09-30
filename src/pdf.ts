@@ -41,64 +41,6 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
     return w
   }
 
-  // ---------- CAPA ----------
-  const { capa } = p
-  if (capa.estilo === 'imagem' && capa.imagem) {
-    // Foto enquadrada só no topo; título e dados numa área de cor abaixo.
-    const recorte = await recortarQuadro(capa.imagem, capa.imgZoom ?? 1, capa.imgX ?? 0.5, capa.imgY ?? 0.5)
-    doc.setFillColor(...cor)
-    doc.rect(0, 0, W, H, 'F')
-    doc.addImage(recorte, 'JPEG', 0, 0, W, QUADRO_H)
-    desenharLogo(M + 6, QUADRO_H + 8, 60, 20)
-    capaTexto(QUADRO_H + (logo ? 46 : 32), 'left', contraste(capa.cor))
-  } else if (capa.estilo === 'faixa') {
-    doc.setFillColor(...cor)
-    doc.rect(0, 0, 38, H, 'F')
-    doc.rect(38, H - 14, W - 38, 14, 'F')
-    desenharLogo(58, 24, 70, 30)
-    capaTexto(H / 2 - 20, 'left', [30, 30, 30], 58)
-  } else {
-    doc.setFillColor(...cor)
-    doc.rect(0, 0, W, H, 'F')
-    desenharLogo(M + 6, 26, 70, 30)
-    capaTexto(H / 2 - 20, 'left', contraste(capa.cor), M + 6)
-  }
-
-  function capaTexto(y: number, _al: 'left', c: [number, number, number], x = M + 6) {
-    doc.setTextColor(...c)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(34)
-    const t = doc.splitTextToSize(capa.titulo || 'PROPOSTA', W - x - M)
-    doc.text(t, x, y)
-    y += t.length * 13 + 2
-    doc.setFillColor(...(capa.estilo === 'faixa' ? cor : c))
-    doc.rect(x, y, 30, 1.6, 'F')
-    y += 12
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(15)
-    if (capa.subtitulo) {
-      const s = doc.splitTextToSize(capa.subtitulo, W - x - M)
-      doc.text(s, x, y)
-      y += s.length * 7 + 4
-    }
-    if (p.cliente.nome) {
-      doc.setFontSize(11)
-      doc.text('Preparada para', x, y)
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(15)
-      const n = doc.splitTextToSize(p.cliente.nome, W - x - M)
-      doc.text(n, x, y + 7)
-      y += 7 + n.length * 7
-    }
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(10)
-    doc.text(`${dataBR(p.data)}  |  Válida até ${dataBR(p.data, p.validadeDias)}`, x, y + 8)
-    if (p.emitente.nome) {
-      doc.setFontSize(10)
-      doc.text(p.emitente.nome, x, H - 22)
-    }
-  }
-
   // ---------- CONTEÚDO ----------
   let y = 0
   const rodape = () => {
@@ -110,7 +52,7 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
     const l1 = [p.emitente.nome, p.emitente.documento].filter(Boolean).join(' | ')
     doc.text(l1, M, H - 12)
     if (p.emitente.endereco) doc.text(p.emitente.endereco, M, H - 8, { maxWidth: CW - 20 })
-    doc.text(`Página ${doc.getNumberOfPages() - 1}`, W - M, H - 12, { align: 'right' })
+    doc.text(`Página ${doc.getNumberOfPages()}`, W - M, H - 12, { align: 'right' })
   }
   const novaPagina = () => {
     doc.addPage()
@@ -146,30 +88,52 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
     y += 3
   }
 
-  novaPagina()
-
-  // Cabeçalho
+  // ---------- FAIXA DO TÍTULO (foto ou cor de fundo) ----------
+  const { capa } = p
+  const comFoto = capa.estilo === 'imagem' && !!capa.imagem
+  const HB = QUADRO_H
+  if (comFoto) {
+    const recorte = await recortarQuadro(capa.imagem, capa.imgZoom ?? 1, capa.imgX ?? 0.5, capa.imgY ?? 0.5)
+    doc.addImage(recorte, 'JPEG', 0, 0, W, HB)
+    doc.setGState(new (doc as any).GState({ opacity: 0.5 }))
+    doc.setFillColor(0, 0, 0)
+    doc.rect(0, 0, W, HB, 'F')
+    doc.setGState(new (doc as any).GState({ opacity: 1 }))
+  } else {
+    doc.setFillColor(...cor)
+    doc.rect(0, 0, W, HB, 'F')
+  }
+  const tc = comFoto ? ([255, 255, 255] as [number, number, number]) : contraste(capa.cor)
+  desenharLogo(W - M, 8, 40, 16, true)
+  doc.setTextColor(...tc)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(24)
-  doc.setTextColor(...cor)
-  doc.text('PROPOSTA', M, y + 6)
-  desenharLogo(W - M, y - 4, 42, 18, true)
-  y += 15
-  doc.setFontSize(12)
-  doc.setTextColor(30)
-  doc.text(p.emitente.nome || '—', M, y)
-  y += 5.5
+  const larguraTitulo = CW - (p.logo ? 46 : 0)
+  const tl = doc.splitTextToSize(capa.titulo || 'PROPOSTA', larguraTitulo).slice(0, 2)
+  let ty = 24
+  doc.text(tl, M, ty)
+  ty += tl.length * 10 + 1
+  doc.setFillColor(...tc)
+  doc.rect(M, ty, 24, 1.2, 'F')
+  ty += 8
+  if (capa.subtitulo) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(11)
+    doc.text(doc.splitTextToSize(capa.subtitulo, CW).slice(0, 2), M, ty)
+  }
+  if (p.cliente.nome) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.text('PREPARADA PARA', M, HB - 17)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.text(doc.splitTextToSize(p.cliente.nome, CW * 0.6)[0], M, HB - 10)
+  }
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.setTextColor(80)
-  if (p.emitente.documento) { doc.text(`CNPJ/CPF: ${p.emitente.documento}`, M, y); y += 4.5 }
-  if (p.emitente.endereco) {
-    const e = doc.splitTextToSize(p.emitente.endereco, CW)
-    doc.text(e, M, y)
-    y += e.length * 4.5
-  }
-  doc.text(`${dataBR(p.data)}  |  Válida até: ${dataBR(p.data, p.validadeDias)}`, M, y)
-  y += 9
+  doc.text(`${dataBR(p.data)}  |  Válida até ${dataBR(p.data, p.validadeDias)}`, W - M, HB - 10, { align: 'right' })
+  rodape()
+  y = HB + 14
 
   // Quadro emitente / cliente
   const col = CW / 2 - 3
@@ -191,10 +155,10 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
   }
   const yTopo = y
   doc.setFillColor(245, 247, 249)
-  const eLin = [p.emitente.nome, p.emitente.email, p.emitente.telefone]
+  const eLin = [p.emitente.nome, p.emitente.documento && `CNPJ/CPF: ${p.emitente.documento}`, p.emitente.endereco, p.emitente.email, p.emitente.telefone]
   const cLin = [p.cliente.nome, p.cliente.documento, p.cliente.endereco, p.cliente.email, p.cliente.telefone]
   const alt = Math.max(
-    eLin.filter(Boolean).length * 5 + 10,
+    eLin.filter(Boolean).reduce((n: number, l) => n + doc.splitTextToSize(String(l), col).length * 4.4, 0) + 10,
     cLin.filter(Boolean).reduce((s, l) => s + doc.splitTextToSize(l, col).length * 4.4, 0) + 10,
   )
   doc.roundedRect(M - 3, yTopo - 5, CW + 6, alt + 2, 2, 2, 'F')

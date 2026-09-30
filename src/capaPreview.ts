@@ -2,7 +2,8 @@ import type { Proposta } from './types'
 import { contraste, rgb } from './pdf'
 import { QUADRO_H, dataBR, desenharQuadro } from './util'
 
-// Réplica em canvas da capa gerada no PDF (mesmas medidas em mm), para pré-visualizar e enquadrar a foto.
+// Réplica em canvas da 1ª página do PDF (mesmas medidas em mm): faixa do título com a foto de fundo
+// e um esquema do restante do conteúdo. Serve para enquadrar a foto vendo o formato real.
 const W = 210
 const H = 297
 const M = 16
@@ -20,19 +21,16 @@ export function desenharCapa(
   const k = cw / W
   const { capa } = p
   const cor = rgb(capa.cor)
+  const HB = QUADRO_H
   ctx.clearRect(0, 0, cw, H * k)
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, cw, H * k)
   ctx.textBaseline = 'alphabetic'
+  ctx.textAlign = 'left'
 
   const rect = (x: number, y: number, w: number, h: number, c: string) => {
     ctx.fillStyle = c
     ctx.fillRect(x * k, y * k, w * k, h * k)
-  }
-  const desenharLogo = (x: number, y: number, maxW: number, maxH: number) => {
-    if (!logo) return
-    const s = Math.min(maxW / logo.width, maxH / logo.height)
-    ctx.drawImage(logo, x * k, y * k, logo.width * s * k, logo.height * s * k)
   }
   const fonte = (pt: number, bold = false) => {
     ctx.font = `${bold ? 'bold ' : ''}${pt * PT * k}px Helvetica, Arial, sans-serif`
@@ -51,57 +49,76 @@ export function desenharCapa(
     return linhas
   }
 
-  const texto = (y: number, c: [number, number, number], x: number) => {
-    const larg = W - x - M
-    ctx.fillStyle = css(c)
-    fonte(34, true)
-    const t = quebrar(capa.titulo || 'PROPOSTA', larg)
-    t.forEach((l, i) => ctx.fillText(l, x * k, (y + i * 13) * k))
-    y += t.length * 13 + 2
-    rect(x, y, 30, 1.6, capa.estilo === 'faixa' ? css(cor) : css(c))
-    y += 12
-    ctx.fillStyle = css(c)
-    fonte(15)
-    if (capa.subtitulo) {
-      const s = quebrar(capa.subtitulo, larg)
-      s.forEach((l, i) => ctx.fillText(l, x * k, (y + i * 7) * k))
-      y += s.length * 7 + 4
-    }
-    if (p.cliente.nome) {
-      fonte(11)
-      ctx.fillText('Preparada para', x * k, y * k)
-      fonte(15, true)
-      const n = quebrar(p.cliente.nome, larg)
-      n.forEach((l, i) => ctx.fillText(l, x * k, (y + 7 + i * 7) * k))
-      y += 7 + n.length * 7
-    }
-    fonte(10)
-    ctx.fillText(`${dataBR(p.data)}  |  Válida até ${dataBR(p.data, p.validadeDias)}`, x * k, (y + 8) * k)
-    if (p.emitente.nome) ctx.fillText(p.emitente.nome, x * k, (H - 22) * k)
-  }
-
-  if (capa.estilo === 'imagem') {
-    rect(0, 0, W, H, css(cor))
-    if (foto) {
-      desenharQuadro(ctx, foto, W * k, QUADRO_H * k, capa.imgZoom ?? 1, capa.imgX ?? 0.5, capa.imgY ?? 0.5)
-    } else {
-      rect(0, 0, W, QUADRO_H, '#d9dee3')
-      ctx.fillStyle = '#6b7885'
-      fonte(14)
-      ctx.textAlign = 'center'
-      ctx.fillText('Escolha a foto da capa', (W / 2) * k, (QUADRO_H / 2) * k)
-      ctx.textAlign = 'left'
-    }
-    desenharLogo(M + 6, QUADRO_H + 8, 60, 20)
-    texto(QUADRO_H + (logo ? 46 : 32), contraste(capa.cor), M + 6)
-  } else if (capa.estilo === 'faixa') {
-    rect(0, 0, 38, H, css(cor))
-    rect(38, H - 14, W - 38, 14, css(cor))
-    desenharLogo(58, 24, 70, 30)
-    texto(H / 2 - 20, [30, 30, 30], 58)
+  // --- faixa do título ---
+  const comFoto = capa.estilo === 'imagem'
+  if (comFoto && foto) {
+    desenharQuadro(ctx, foto, W * k, HB * k, capa.imgZoom ?? 1, capa.imgX ?? 0.5, capa.imgY ?? 0.5)
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'
+    ctx.fillRect(0, 0, W * k, HB * k)
+  } else if (comFoto) {
+    rect(0, 0, W, HB, '#8a96a3')
   } else {
-    rect(0, 0, W, H, css(cor))
-    desenharLogo(M + 6, 26, 70, 30)
-    texto(H / 2 - 20, contraste(capa.cor), M + 6)
+    rect(0, 0, W, HB, css(cor))
+  }
+  const tc: [number, number, number] = comFoto ? [255, 255, 255] : contraste(capa.cor)
+  ctx.fillStyle = css(tc)
+
+  if (logo) {
+    const s = Math.min(40 / logo.width, 16 / logo.height)
+    const w = logo.width * s
+    ctx.drawImage(logo, (W - M - w) * k, 8 * k, w * k, logo.height * s * k)
+  }
+  fonte(24, true)
+  const tl = quebrar(capa.titulo || 'PROPOSTA', CW() - (logo ? 46 : 0)).slice(0, 2)
+  let ty = 24
+  tl.forEach((l, i) => ctx.fillText(l, M * k, (ty + i * 10) * k))
+  ty += tl.length * 10 + 1
+  rect(M, ty, 24, 1.2, css(tc))
+  ty += 8
+  fonte(11)
+  ctx.fillStyle = css(tc)
+  if (capa.subtitulo) quebrar(capa.subtitulo, CW()).slice(0, 2).forEach((l, i) => ctx.fillText(l, M * k, (ty + i * 5) * k))
+  if (p.cliente.nome) {
+    fonte(8)
+    ctx.fillText('PREPARADA PARA', M * k, (HB - 17) * k)
+    fonte(13, true)
+    ctx.fillText(quebrar(p.cliente.nome, CW() * 0.6)[0], M * k, (HB - 10) * k)
+  }
+  fonte(9)
+  ctx.textAlign = 'right'
+  ctx.fillText(`${dataBR(p.data)}  |  Válida até ${dataBR(p.data, p.validadeDias)}`, (W - M) * k, (HB - 10) * k)
+  ctx.textAlign = 'left'
+
+  // --- esquema do restante da página ---
+  const cinza = '#e6eaee'
+  let y = HB + 14
+  rect(M - 3, y - 5, CW() + 6, 26, '#f5f7f9')
+  rect(M, y, 30, 2, css(cor))
+  rect(M + CW() / 2 + 3, y, 12, 2, css(cor))
+  for (let i = 0; i < 3; i++) {
+    rect(M, y + 6 + i * 5, 55 - i * 8, 2, cinza)
+    rect(M + CW() / 2 + 3, y + 6 + i * 5, 60 - i * 10, 2, cinza)
+  }
+  y += 32
+  rect(M, y, CW(), 2.5, cinza)
+  rect(M, y + 5, CW() * 0.7, 2.5, cinza)
+  y += 16
+  rect(M, y, 40, 2, css(cor))
+  rect(M, y + 4, CW(), 6, css(cor))
+  rect(M, y + 12, CW(), 5, '#f7f8fa')
+  rect(W - M - 40, y + 22, 40, 2.5, cinza)
+  rect(W - M - 40, y + 28, 40, 3.5, css(cor))
+  y += 44
+  for (let b = 0; b < 3; b++) {
+    rect(M, y, 34, 2, css(cor))
+    rect(M, y + 5, CW(), 2, cinza)
+    rect(M, y + 9, CW() * 0.8, 2, cinza)
+    y += 20
+  }
+  rect(M, H - 17, CW(), 0.3, '#d2d2d2')
+  rect(M, H - 13, 60, 1.5, cinza)
+
+  function CW() {
+    return W - M * 2
   }
 }
