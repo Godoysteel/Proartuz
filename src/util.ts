@@ -32,8 +32,37 @@ const emitentePadrao = (): Parte => {
   return parteVazia()
 }
 
-export const novaProposta = (): Proposta => ({
+export const fmtNum = (n: number) => String(n).padStart(4, '0')
+
+const CONTADOR = 'proposta.ultimoNumero'
+const lerContador = () => Number(localStorage.getItem(CONTADOR)) || 0
+
+// Próximo número da sequência: nunca repete, mesmo se a última proposta for excluída.
+export const reservarNumero = (existentes: Proposta[]) => {
+  const n = Math.max(lerContador(), ...existentes.map((p) => p.numero ?? 0)) + 1
+  localStorage.setItem(CONTADOR, String(n))
+  return n
+}
+
+// Devolve o número quando uma proposta em branco é descartada (evita buracos na sequência).
+export const devolverNumero = (n: number) => {
+  if (lerContador() === n) localStorage.setItem(CONTADOR, String(n - 1))
+}
+
+// Propostas antigas (sem número) recebem numeração pela ordem de criação.
+export const numerarAntigas = (lista: Proposta[]) => {
+  if (lista.every((p) => p.numero)) return lista
+  // Determinístico (não depende do contador), para dar o mesmo resultado se rodar duas vezes.
+  let n = Math.max(0, ...lista.map((p) => p.numero ?? 0))
+  const semNumero = lista.filter((p) => !p.numero).sort((a, b) => a.atualizadaEm - b.atualizadaEm)
+  const nums = new Map(semNumero.map((p) => [p.id, ++n]))
+  localStorage.setItem(CONTADOR, String(Math.max(lerContador(), n)))
+  return lista.map((p) => (p.numero ? p : { ...p, numero: nums.get(p.id)! }))
+}
+
+export const novaProposta = (numero: number): Proposta => ({
   id: uid(),
+  numero,
   atualizadaEm: Date.now(),
   data: hoje(),
   validadeDias: 30,

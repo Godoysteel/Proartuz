@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf'
 import type { Proposta } from './types'
-import { QUADRO_H, brl, dataBR, recortarQuadro, totais } from './util'
+import { QUADRO_H, brl, fmtNum, dataBR, recortarQuadro, totais } from './util'
 
 const W = 210
 const H = 297
@@ -107,6 +107,8 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
   desenharLogo(W - M, 8, 40, 16, true)
   doc.setTextColor(...tc)
   doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.text(`PROPOSTA Nº ${fmtNum(p.numero)}`, M, 15)
   doc.setFontSize(24)
   const larguraTitulo = CW - (p.logo ? 46 : 0)
   const tl = doc.splitTextToSize(capa.titulo || 'PROPOSTA', larguraTitulo).slice(0, 2)
@@ -252,6 +254,6 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
     paragrafo(s.texto)
   }
 
-  const nomeArq = `proposta-${(p.cliente.nome || 'cliente').toLowerCase().normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '')}-${p.data}.pdf`
+  const nomeArq = `proposta-${fmtNum(p.numero)}-${(p.cliente.nome || 'cliente').toLowerCase().normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '')}-${p.data}.pdf`
   return { blob: doc.output('blob'), nome: nomeArq }
 }

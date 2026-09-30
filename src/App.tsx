@@ -9,6 +9,10 @@ import {
   carregarLogo,
   carregarOriginal,
   dataBR,
+  devolverNumero,
+  fmtNum,
+  numerarAntigas,
+  reservarNumero,
   novaProposta,
   totais,
   uid,
@@ -23,7 +27,7 @@ const KEY = 'propostas.v1'
 
 const carregar = (): Proposta[] => {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '[]')
+    return numerarAntigas(JSON.parse(localStorage.getItem(KEY) ?? '[]'))
   } catch {
     return []
   }
@@ -192,15 +196,18 @@ export default function App() {
 
   // Proposta aberta sem nenhum dado preenchido não vai para o histórico.
   const voltar = () => {
-    if (atual && vazia(atual)) setLista((l) => l.filter((x) => x.id !== atual.id))
+    if (atual && vazia(atual)) {
+      devolverNumero(atual.numero)
+      setLista((l) => l.filter((x) => x.id !== atual.id))
+    }
     setAberta(null)
     setBusca('')
   }
 
   const criar = () => {
     if (atual && vazia(atual)) return
-    const p = novaProposta()
-    setLista((l) => [p, ...l.filter((x) => !(x.id === aberta && vazia(x)))])
+    const p = novaProposta(reservarNumero(lista))
+    setLista((l) => [p, ...l])
     setAberta(p.id)
     window.scrollTo(0, 0)
   }
@@ -260,7 +267,9 @@ export default function App() {
         {filtradas.map((p) => (
           <div key={p.id} className="card lista-item" onClick={() => setAberta(p.id)}>
             <div className="lista-info">
-              <strong>{p.cliente.nome || 'Sem cliente'}</strong>
+              <strong>
+                <span className="num">Nº {fmtNum(p.numero)}</span> {p.cliente.nome || 'Sem cliente'}
+              </strong>
               <small>{p.itens.find((i) => i.descricao.trim())?.descricao || 'Sem itens'}</small>
               <small>
                 {dataBR(p.data)} · <b>{brl(totais(p).total)}</b> · editada{' '}
@@ -276,7 +285,11 @@ export default function App() {
               </button>
               <button
                 className="link"
-                onClick={() => setLista((l) => [{ ...structuredClone(p), id: uid(), atualizadaEm: Date.now() }, ...l])}
+                onClick={() => {
+                  // fora do updater do setState: em StrictMode ele roda duas vezes e pularia números
+                  const numero = reservarNumero(lista)
+                  setLista((l) => [{ ...structuredClone(p), id: uid(), numero, atualizadaEm: Date.now() }, ...l])
+                }}
               >
                 Duplicar
               </button>
@@ -435,7 +448,7 @@ function Editor({
         <button className="link claro" onClick={onVoltar}>
           ‹ Histórico
         </button>
-        <h1>{p.cliente.nome || 'Nova proposta'}</h1>
+        <h1>{`Nº ${fmtNum(p.numero)} · ${p.cliente.nome || 'Nova proposta'}`}</h1>
       </header>
       <main>
         <section className="card">
@@ -505,6 +518,13 @@ function Editor({
 
         <section className="card">
           <h2>Proposta</h2>
+          <Campo
+            rotulo="Nº da proposta (sequencial, pode ajustar)"
+            tipo="number"
+            inputMode="numeric"
+            valor={p.numero}
+            onChange={(v) => up({ numero: Math.max(1, Math.floor(Number(v)) || 1) })}
+          />
           <div className="linha2">
             <Campo rotulo="Data" tipo="date" valor={p.data} onChange={(v) => up({ data: v })} />
             <Campo

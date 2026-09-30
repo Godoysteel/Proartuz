@@ -1,6 +1,6 @@
 import type { Proposta } from './types'
 import { contraste, rgb } from './pdf'
-import { QUADRO_H, dataBR, desenharQuadro } from './util'
+import { QUADRO_H, dataBR, fmtNum, desenharQuadro } from './util'
 
 // Réplica em canvas da 1ª página do PDF (mesmas medidas em mm): faixa do título com a foto de fundo
 // e um esquema do restante do conteúdo. Serve para enquadrar a foto vendo o formato real.
@@ -68,6 +68,8 @@ export function desenharCapa(
     const w = logo.width * s
     ctx.drawImage(logo, (W - M - w) * k, 8 * k, w * k, logo.height * s * k)
   }
+  fonte(9, true)
+  ctx.fillText(`PROPOSTA Nº ${fmtNum(p.numero)}`, M * k, 15 * k)
   fonte(24, true)
   const tl = quebrar(capa.titulo || 'PROPOSTA', CW() - (logo ? 46 : 0)).slice(0, 2)
   let ty = 24

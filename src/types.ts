@@ -25,6 +25,7 @@ export type Capa = {
 
 export type Proposta = {
   id: string
+  numero: number // sequencial, editável
   atualizadaEm: number
   data: string // yyyy-mm-dd
   validadeDias: number
