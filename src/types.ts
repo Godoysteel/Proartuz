@@ -36,5 +36,6 @@ export type Proposta = {
   apresentacao: string
   itens: Item[]
   desconto: number
+  ocultarTotal?: boolean // esconde o bloco Valor / Desconto / Valor total no PDF
   secoes: Secao[]
 }

@@ -227,16 +227,17 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
   })
   y += 2
 
-  // Totais
+  // Totais (podem ser ocultados no PDF)
   const { subtotal, total } = totais(p)
-  garante(30)
-  const linha = (r: string, v: string, forte = false) => {
-    doc.setFont('helvetica', forte ? 'bold' : 'normal')
-    doc.setFontSize(forte ? 12 : 9.5)
-    doc.setTextColor(forte ? cor[0] : 60, forte ? cor[1] : 60, forte ? cor[2] : 60)
-    doc.text(r, W - M - 62, y)
-    doc.text(v, W - M, y, { align: 'right' })
-    y += forte ? 7 : 5.5
+  if (!p.ocultarTotal) {
+    garante(30)
+    const linha = (r: string, v: string, forte = false) => {
+      doc.setFont('helvetica', forte ? 'bold' : 'normal')
+      doc.setFontSize(forte ? 12 : 9.5)
+      doc.setTextColor(forte ? cor[0] : 60, forte ? cor[1] : 60, forte ? cor[2] : 60)
+      doc.text(r, W - M - 62, y)
+      doc.text(v, W - M, y, { align: 'right' })
+      y += forte ? 7 : 5.5
   }
   doc.setDrawColor(210)
   doc.line(W - M - 70, y - 4, W - M, y - 4)
@@ -246,6 +247,7 @@ export async function gerarPdf(p: Proposta): Promise<{ blob: Blob; nome: string 
   y += 2
   linha('Valor total', brl(total), true)
   y += 6
+  }
 
   // Seções livres
   for (const s of p.secoes) {

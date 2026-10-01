@@ -6,7 +6,10 @@ import {
   areaVisivel,
   brl,
   carregarImg,
+  carregarEmpresa,
   carregarLogo,
+  salvarEmpresa,
+  type Empresa,
   carregarOriginal,
   dataBR,
   devolverNumero,
@@ -162,6 +165,22 @@ export default function App() {
   const [busca, setBusca] = useState('')
   const [gerando, setGerando] = useState(false)
   const [pronto, setPronto] = useState<PdfPronto | null>(null)
+  const [empresa, setEmpresaEstado] = useState<Empresa>(() => {
+    const e = carregarEmpresa()
+    if (e.parte.nome) return e
+    // primeira vez com dados fixos: aproveita os dados da proposta mais recente que já tenha emitente preenchido
+    const antiga = [...lista].sort((a, b) => b.atualizadaEm - a.atualizadaEm).find((x) => x.emitente?.nome?.trim())
+    if (!antiga) return e
+    const n = { ...e, parte: antiga.emitente, logo: e.logo || antiga.logo || '' }
+    salvarEmpresa(n)
+    return n
+  })
+  const setEmpresa = (e: Empresa) => {
+    setEmpresaEstado(e)
+    salvarEmpresa(e)
+  }
+  // Os dados da empresa valem para todas as propostas, inclusive as antigas.
+  const comEmpresa = (p: Proposta): Proposta => ({ ...p, emitente: empresa.parte, logo: empresa.logo })
   const ultima = useRef(lista)
   ultima.current = lista
 
@@ -179,6 +198,10 @@ export default function App() {
     return () => clearTimeout(t)
   }, [lista])
   useEffect(() => {
+    // pede ao navegador para não apagar os dados salvos quando faltar espaço ou ficar muito tempo sem uso
+    navigator.storage?.persist?.().catch(() => {})
+  }, [])
+  useEffect(() => {
     const sair = () => document.visibilityState === 'hidden' && gravar()
     document.addEventListener('visibilitychange', sair)
     window.addEventListener('pagehide', gravar)
@@ -195,9 +218,6 @@ export default function App() {
       l.map((x) => {
         if (x.id !== aberta) return x
         const n = { ...fn(x), atualizadaEm: Date.now() }
-        // emitente e logo viram padrão das próximas propostas
-        localStorage.setItem('emitente', JSON.stringify(n.emitente))
-        if (n.logo !== x.logo) localStorage.setItem('logo', n.logo)
         return n
       }),
     )
@@ -223,7 +243,7 @@ export default function App() {
   const gerar = async (p: Proposta, compartilhar: boolean) => {
     setGerando(true)
     try {
-      const r = await exportarPdf(p, compartilhar)
+      const r = await exportarPdf(comEmpresa(p), compartilhar)
       setPronto((ant) => {
         if (ant) URL.revokeObjectURL(ant.url)
         return r
@@ -269,10 +289,41 @@ export default function App() {
   if (atual)
     return (
       <>
-        <Editor p={atual} setP={editar} onVoltar={voltar} />
+        <Editor p={comEmpresa(atual)} setP={editar} empresa={empresa} setEmpresa={setEmpresa} onVoltar={voltar} />
         {barra}
       </>
     )
+
+  const fazerBackup = () => {
+    const dados = { versao: 1, exportadoEm: new Date().toISOString(), propostas: lista, empresa, contador: localStorage.getItem('proposta.ultimoNumero') }
+    const blob = new Blob([JSON.stringify(dados)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `proartuz-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+  }
+
+  const restaurar = async (f?: File) => {
+    if (!f) return
+    try {
+      const d = JSON.parse(await f.text())
+      if (!Array.isArray(d.propostas)) throw new Error('Arquivo de backup inválido')
+      const ids = new Set(lista.map((p) => p.id))
+      const novas = (d.propostas as Proposta[]).filter((p) => p?.id && !ids.has(p.id))
+      setLista((l) => numerarAntigas([...l, ...novas]))
+      if (d.empresa?.parte && !empresa.parte.nome) setEmpresa({ ...empresa, ...d.empresa })
+      const maior = Math.max(Number(d.contador) || 0, ...novas.map((p) => p.numero ?? 0))
+      if (maior > Number(localStorage.getItem('proposta.ultimoNumero') || 0)) localStorage.setItem('proposta.ultimoNumero', String(maior))
+      alert(`Backup restaurado: ${novas.length} proposta(s) adicionada(s).`)
+    } catch (e) {
+      alert('Não foi possível restaurar: ' + (e as Error).message)
+    }
+  }
 
   const termo = busca.trim().toLowerCase()
   const filtradas = lista
@@ -294,6 +345,15 @@ export default function App() {
             onChange={(e) => setBusca(e.target.value)}
           />
         )}
+        <div className="backup">
+          <button className="link" onClick={fazerBackup}>
+            Salvar backup
+          </button>
+          <label className="link">
+            Restaurar backup
+            <input type="file" accept="application/json,.json" hidden onChange={(e) => restaurar(e.target.files?.[0])} />
+          </label>
+        </div>
         {lista.length === 0 && <p className="vazio">Nenhuma proposta ainda. Toque em “Nova” para criar a primeira.</p>}
         {lista.length > 0 && filtradas.length === 0 && <p className="vazio">Nada encontrado.</p>}
         {filtradas.map((p) => (
@@ -454,6 +514,63 @@ function CapaPreview({ p, onChange }: { p: Proposta; onChange: (v: { zoom: numbe
   )
 }
 
+function EmpresaCard({ empresa, setEmpresa }: { empresa: Empresa; setEmpresa: (e: Empresa) => void }) {
+  const [editando, setEditando] = useState(!empresa.parte.nome)
+  const e = empresa.parte
+  if (!editando)
+    return (
+      <>
+        <div className="empresa-resumo">
+          {empresa.logo && <img src={empresa.logo} alt="Logo" />}
+          <div>
+            <strong>{e.nome}</strong>
+            {e.documento && <small>CNPJ/CPF: {e.documento}</small>}
+            {e.endereco && <small>{e.endereco}</small>}
+            {(e.email || e.telefone) && <small>{[e.email, e.telefone].filter(Boolean).join(' · ')}</small>}
+          </div>
+        </div>
+        <small className="dica fixo">Dados fixos: valem para todas as propostas, novas e antigas.</small>
+        <button className="sec" onClick={() => setEditando(true)}>
+          Alterar dados da empresa
+        </button>
+      </>
+    )
+  return (
+    <>
+      <ParteForm p={e} onChange={(parte) => setEmpresa({ ...empresa, parte })} />
+      <label className="campo">
+        <span>Logo (aparece no título e no cabeçalho)</span>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={async (ev) => {
+            const f = ev.target.files?.[0]
+            if (f) setEmpresa({ ...empresa, logo: await carregarLogo(f) })
+          }}
+        />
+        {empresa.logo && (
+          <div className="logo-prev">
+            <img src={empresa.logo} alt="Logo" />
+            <button className="link perigo" onClick={() => setEmpresa({ ...empresa, logo: '' })}>
+              Remover
+            </button>
+          </div>
+        )}
+      </label>
+      <Campo
+        rotulo="Texto de apresentação padrão (preenche as novas propostas)"
+        multi
+        valor={empresa.apresentacao}
+        onChange={(v) => setEmpresa({ ...empresa, apresentacao: v })}
+      />
+      <small className="dica fixo">Salvo automaticamente e fixo para todas as propostas.</small>
+      <button className="pri cheio" disabled={!e.nome.trim()} onClick={() => setEditando(false)}>
+        Concluído
+      </button>
+    </>
+  )
+}
+
 const ESTILOS: { id: CoverStyle; nome: string }[] = [
   { id: 'solida', nome: 'Cor de fundo' },
   { id: 'imagem', nome: 'Foto de fundo' },
@@ -464,10 +581,14 @@ const CORES = ['#0f3d5e', '#1b1b1b', '#b3261e', '#1f7a4d', '#c77d0a', '#5b3fa0']
 function Editor({
   p,
   setP,
+  empresa,
+  setEmpresa,
   onVoltar,
 }: {
   p: Proposta
   setP: (fn: (x: Proposta) => Proposta) => void
+  empresa: Empresa
+  setEmpresa: (e: Empresa) => void
   onVoltar: () => void
 }) {
   const { subtotal, total } = useMemo(() => totais(p), [p])
@@ -527,25 +648,6 @@ function Editor({
               />
             </div>
           )}
-          <label className="campo">
-            <span>Logo (aparece na capa e no cabeçalho)</span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={async (e) => {
-                const f = e.target.files?.[0]
-                if (f) up({ logo: await carregarLogo(f) })
-              }}
-            />
-            {p.logo && (
-              <div className="logo-prev">
-                <img src={p.logo} alt="Logo" />
-                <button className="link perigo" onClick={() => up({ logo: '' })}>
-                  Remover
-                </button>
-              </div>
-            )}
-          </label>
         </section>
 
         <section className="card">
@@ -576,8 +678,8 @@ function Editor({
         </section>
 
         <section className="card">
-          <h2>Seus dados (emitente)</h2>
-          <ParteForm p={p.emitente} onChange={(v) => up({ emitente: v })} />
+          <h2>Dados da empresa</h2>
+          <EmpresaCard empresa={empresa} setEmpresa={setEmpresa} />
         </section>
 
         <section className="card">
@@ -642,6 +744,13 @@ function Editor({
             <span>Subtotal {brl(subtotal)}</span>
             <strong>Total {brl(total)}</strong>
           </div>
+          <label className="opcao">
+            <input type="checkbox" checked={!!p.ocultarTotal} onChange={(e) => up({ ocultarTotal: e.target.checked })} />
+            <span>
+              Ocultar o valor total no PDF
+              <small>Esconde o quadro Valor / Desconto / Valor total. Os valores dos itens continuam na tabela.</small>
+            </span>
+          </label>
         </section>
 
         <section className="card">

@@ -68,3 +68,17 @@ button:disabled { opacity:.6; }
 .aviso-pdf small { display:block; opacity:.85; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .aviso-pdf a { color:#0f3d5e; background:#fff; padding:8px 12px; border-radius:8px; font-weight:700; font-size:13px; text-decoration:none; }
 .aviso-pdf button { background:none; border:0; color:#fff; font-size:22px; line-height:1; padding:4px 6px; }
+
+.opcao { display:flex; gap:10px; align-items:flex-start; margin-top:12px; padding:10px 12px; border:1px solid var(--bd); border-radius:10px; cursor:pointer; }
+.opcao input { width:auto; margin-top:3px; flex:none; transform:scale(1.25); }
+.opcao span { font-weight:600; font-size:14px; }
+.opcao small { display:block; font-weight:400; color:var(--mut); font-size:12px; margin-top:2px; }
+
+.empresa-resumo { display:flex; gap:12px; align-items:center; }
+.empresa-resumo img { max-width:96px; max-height:56px; object-fit:contain; background:#f4f6f8; border-radius:6px; }
+.empresa-resumo small { display:block; color:var(--mut); margin-top:2px; font-size:13px; }
+.dica.fixo { margin:10px 0; }
+.backup { display:flex; justify-content:flex-end; gap:6px; margin-top:-4px; }
+.backup label.link { cursor:pointer; }
+.dica { display:block; color:var(--mut); font-size:12px; line-height:1.4; }
+.cheio { width:100%; margin-top:4px; }

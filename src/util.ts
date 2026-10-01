@@ -22,14 +22,35 @@ export const totais = (p: Proposta) => {
 
 const parteVazia = (): Parte => ({ nome: '', documento: '', endereco: '', email: '', telefone: '' })
 
-const emitentePadrao = (): Parte => {
+export type Empresa = { parte: Parte; logo: string; apresentacao: string }
+
+const EMPRESA = 'empresa.v1'
+
+// Dados fixos da empresa (emitente, logo e texto de apresentação padrão): valem para todas as propostas.
+export const carregarEmpresa = (): Empresa => {
   try {
-    const s = localStorage.getItem('emitente')
-    if (s) return JSON.parse(s)
+    const s = localStorage.getItem(EMPRESA)
+    if (s) return { parte: parteVazia(), logo: '', apresentacao: '', ...JSON.parse(s) }
   } catch {
     /* ignora */
   }
-  return parteVazia()
+  // migra os dados que versões anteriores guardavam em chaves soltas
+  let parte = parteVazia()
+  try {
+    const e = localStorage.getItem('emitente')
+    if (e) parte = JSON.parse(e)
+  } catch {
+    /* ignora */
+  }
+  return { parte, logo: localStorage.getItem('logo') ?? '', apresentacao: '' }
+}
+
+export const salvarEmpresa = (e: Empresa) => {
+  try {
+    localStorage.setItem(EMPRESA, JSON.stringify(e))
+  } catch {
+    alert('Sem espaço para salvar os dados da empresa. Use uma logo menor.')
+  }
 }
 
 export const fmtNum = (n: number) => String(n).padStart(4, '0')
@@ -66,11 +87,11 @@ export const novaProposta = (numero: number): Proposta => ({
   atualizadaEm: Date.now(),
   data: hoje(),
   validadeDias: 30,
-  emitente: emitentePadrao(),
+  emitente: carregarEmpresa().parte,
   cliente: parteVazia(),
   capa: { estilo: 'solida', cor: '#0f3d5e', titulo: 'PROPOSTA COMERCIAL', subtitulo: '', imagem: '' },
-  logo: localStorage.getItem('logo') ?? '',
-  apresentacao: '',
+  logo: carregarEmpresa().logo,
+  apresentacao: carregarEmpresa().apresentacao,
   itens: [{ id: uid(), descricao: '', detalhe: '', qtd: 1, valor: 0 }],
   desconto: 0,
   secoes: [
